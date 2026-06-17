@@ -21,10 +21,7 @@
 //! println!("stored {id} at {path}");
 //! ```
 
-use core::{
-    fmt, mem,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use core::{fmt, mem};
 
 use alloc::{
     collections::BTreeMap,
@@ -37,13 +34,11 @@ use thiserror::Error;
 
 use crate::{
     coroutine::*,
-    entry::types::INFORMATIONAL_SUFFIX_SEPARATOR,
+    entry::types::{INFORMATIONAL_SUFFIX_SEPARATOR, mint_id},
     flag::types::MaildirFlags,
     maildir::types::{Maildir, MaildirSubdir},
     path::FsPath,
 };
-
-static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Failure causes during a [`MaildirEntryStore`] step.
 #[derive(Clone, Debug, Error)]
@@ -113,12 +108,7 @@ impl MaildirCoroutine for MaildirEntryStore {
                 MaildirCoroutineState::Yielded(MaildirYield::WantsHostname)
             }
             (State::AwaitHostname { secs, nanos, pid }, Some(MaildirReply::Hostname(hostname))) => {
-                let secs = *secs;
-                let nanos = *nanos;
-                let pid = *pid;
-
-                let counter = COUNTER.fetch_add(1, Ordering::AcqRel);
-                let id = format!("{secs}.#{counter:x}M{nanos}P{pid}.{hostname}");
+                let id = mint_id(*secs, *nanos, *pid, &hostname);
 
                 let mut final_name = id.clone();
                 if matches!(self.subdir, MaildirSubdir::Cur) {

@@ -1,9 +1,12 @@
 //! Maildir entry types: full body, lightweight handle, and the
 //! platform-specific info-section separator.
 
-use core::hash::{Hash, Hasher};
+use core::{
+    hash::{Hash, Hasher},
+    sync::atomic::{AtomicU32, Ordering},
+};
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use crate::{flag::types::MaildirFlags, path::FsPath};
 
@@ -11,6 +14,23 @@ use crate::{flag::types::MaildirFlags, path::FsPath};
 pub static INFORMATIONAL_SUFFIX_SEPARATOR: char = ':';
 #[cfg(windows)]
 pub static INFORMATIONAL_SUFFIX_SEPARATOR: char = ';';
+
+/// Process-wide counter disambiguating ids minted within the same
+/// clock tick. Shared by every delivery site (store / copy / move) so
+/// two deliveries into the same Maildir can never collide.
+static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// Mints a fresh Maildir unique name following the delivery
+/// convention: `{secs}.#{counter:x}M{nanos}P{pid}.{hostname}`.
+///
+/// Used by [`store`](crate::entry::store), [`copy`](crate::entry::copy)
+/// and [`r#move`](crate::entry::r#move) so a relocated entry never
+/// reuses the source basename (which may carry foreign, folder-specific
+/// metadata such as mbsync's `,U=<uid>` infix).
+pub(crate) fn mint_id(secs: u64, nanos: u32, pid: u32, hostname: &str) -> String {
+    let counter = ID_COUNTER.fetch_add(1, Ordering::AcqRel);
+    format!("{secs}.#{counter:x}M{nanos}P{pid}.{hostname}")
+}
 
 /// A Maildir entry: on-disk path plus body bytes.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

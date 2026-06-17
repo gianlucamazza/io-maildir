@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `MaildirEntryCopy` and `MaildirEntryMove` now mint a fresh unique name and preserve flags ([#1]).
+
+  Both previously built the destination filename from the raw source basename (`{id}:2,`), which (1) reused the source unique name verbatim — carrying folder-specific metadata baked in by other tools, notably mbsync's `,U=<uid>` infix (valid only in the source folder), into the destination where it corrupts sync state and can silently overwrite a same-named entry — and (2) dropped the source flags. Copy and move now follow the same delivery convention as `MaildirEntryStore` (shared `mint_id` from time / pid / hostname) and carry the source flags into the target `:2,<flags>` suffix.
+
+[#1]: https://github.com/pimalaya/io-maildir/issues/1
+
 ## [0.1.0] - 2026-06-05
 
 ### Added

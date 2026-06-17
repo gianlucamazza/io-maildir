@@ -23,12 +23,9 @@
 //! client.run(coroutine).unwrap();
 //! ```
 
-use core::{
-    fmt,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use core::fmt;
 
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 
 use log::trace;
 use thiserror::Error;
@@ -36,14 +33,12 @@ use thiserror::Error;
 use crate::{
     coroutine::*,
     entry::locate::*,
-    entry::types::INFORMATIONAL_SUFFIX_SEPARATOR,
+    entry::types::{INFORMATIONAL_SUFFIX_SEPARATOR, mint_id},
     flag::types::MaildirFlags,
     maildir::types::{Maildir, MaildirSubdir},
     maildir_try,
     path::FsPath,
 };
-
-static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Failure causes during a [`MaildirEntryCopy`] step.
 #[derive(Clone, Debug, Error)]
@@ -201,13 +196,6 @@ impl fmt::Display for State {
     }
 }
 
-/// Mints a fresh Maildir unique name, matching the delivery convention used by
-/// [`MaildirEntryStore`](crate::entry::store::MaildirEntryStore).
-fn mint_id(secs: u64, nanos: u32, pid: u32, hostname: &str) -> String {
-    let counter = COUNTER.fetch_add(1, Ordering::AcqRel);
-    format!("{secs}.#{counter:x}M{nanos}P{pid}.{hostname}")
-}
-
 fn build_target_path(
     target: &Maildir,
     subdir: &MaildirSubdir,
@@ -226,6 +214,8 @@ fn build_target_path(
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::String;
+
     use super::*;
 
     fn source() -> Maildir {
