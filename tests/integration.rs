@@ -21,8 +21,8 @@
 //!   → FLAGS SET Seen on /cur    (renames file in place)
 //!   → FLAGS ADD Flagged         (verify Seen + Flagged both present)
 //!   → FLAGS REMOVE Seen         (verify only Flagged remains)
-//!   → COPY inbox→drafts         (verify both have it)
-//!   → MOVE inbox→drafts         (entry_c, inbox shrinks)
+//!   → COPY inbox→drafts         (fresh id minted, body + flags preserved)
+//!   → MOVE inbox→drafts         (entry_c, fresh id, inbox shrinks)
 //!   → RENAME drafts → archive   (verify old gone, new exists)
 //!   → DELETE MAILDIR archive    (verify dir gone)
 //!   → MAILDIR LIST              (final state: only inbox)
@@ -258,6 +258,8 @@ fn end_to_end() {
 
     // ── COPY (inbox → drafts) ───────────────────────────────────────
 
+    // A copy is a fresh delivery into the target: it mints a brand-new
+    // unique name (never reuses the source basename) and preserves flags.
     client
         .copy(
             &id_b,
@@ -272,14 +274,35 @@ fn end_to_end() {
         3,
         "inbox still holds 3 entries after copy",
     );
+    let drafts_after_copy = client.list_entries(drafts.clone()).unwrap();
     assert_eq!(
-        client.list_entries(drafts.clone()).unwrap().len(),
+        drafts_after_copy.len(),
         1,
         "drafts now holds 1 entry from the copy",
+    );
+    let copy_b = drafts_after_copy.iter().next().expect("one drafts entry");
+    assert_ne!(
+        copy_b.id(),
+        Some(id_b.as_str()),
+        "copy must mint a fresh id, not reuse the source basename",
+    );
+    assert_eq!(
+        client
+            .read_entry(copy_b)
+            .expect("read copied entry")
+            .contents(),
+        body_b.as_bytes(),
+        "copy must carry the source body",
+    );
+    // entry_b carries only Flagged at this point (Seen was removed above).
+    assert!(
+        copy_b.flags().contains(&MaildirFlag::Flagged),
+        "copy must preserve the source flags",
     );
 
     // ── MOVE (inbox → drafts, entry_c) ──────────────────────────────
 
+    // A move relocates the entry under a fresh unique name as well.
     client
         .r#move(
             &id_c,
@@ -294,10 +317,17 @@ fn end_to_end() {
         2,
         "inbox should hold 2 entries after move",
     );
+    let drafts_after_move = client.list_entries(drafts.clone()).unwrap();
     assert_eq!(
-        client.list_entries(drafts.clone()).unwrap().len(),
+        drafts_after_move.len(),
         2,
         "drafts should hold 2 entries after move",
+    );
+    assert!(
+        drafts_after_move
+            .iter()
+            .all(|e| e.id() != Some(id_c.as_str())),
+        "move must mint a fresh id, not reuse the source basename",
     );
 
     // ── RENAME (drafts → archive) ───────────────────────────────────
@@ -318,11 +348,21 @@ fn end_to_end() {
         .load_maildir("archive")
         .expect("load archive after rename");
 
-    // Reload entry_b path inside archive then delete it directly.
-    let (archived_b_path, _, _) = client
-        .locate(archive.clone(), &id_b)
-        .expect("locate entry_b in archive");
-    std::fs::remove_file(archived_b_path.as_str()).expect("remove archived entry_b");
+    // The copy of body_b lives in archive under a fresh id; find it by
+    // content (not by id_b, which the copy no longer carries) and delete it.
+    let archive_entries = client
+        .list_entries(archive.clone())
+        .expect("list archive entries");
+    let archived_b = archive_entries
+        .iter()
+        .find(|e| {
+            client
+                .read_entry(e)
+                .map(|m| m.contents() == body_b.as_bytes())
+                .unwrap_or(false)
+        })
+        .expect("locate copy of body_b in archive");
+    std::fs::remove_file(archived_b.path().as_str()).expect("remove archived copy of body_b");
     assert_eq!(
         client.list_entries(archive.clone()).unwrap().len(),
         1,
